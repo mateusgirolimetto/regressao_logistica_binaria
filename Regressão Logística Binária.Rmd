@@ -1,0 +1,152 @@
+---
+title: "Modelo Logístico 2"
+author: "Mateus Girolimetto"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#-------------------------------------------------
+# 1. Carregando Dados
+#-------------------------------------------------
+```{r Carregando Dados}
+library(readr)
+diabetes_dataset <- read_csv("/home/usuario/Desktop/Monografia/Versão 2/diabetes_dataset.csv")
+
+# Pré-processamento: Conversão das variáveis em fatores
+diabetes_dataset$gender <- factor(diabetes_dataset$gender, levels = c("Male", "Female", "Other"))
+
+diabetes_dataset$ethnicity <- factor(diabetes_dataset$ethnicity, levels = c("White", "Hispanic", "Black", "Asian", "Other"))
+
+diabetes_dataset$education_level <- factor(diabetes_dataset$education_level, levels = c("No formal", "Highschool", "Graduate", "Postgraduate"))
+
+diabetes_dataset$income_level <- factor(diabetes_dataset$income_level, levels = c("Low", "Lower-Middle", "Middle", "Upper-Middle", "High"))
+
+diabetes_dataset$employment_status <- factor(diabetes_dataset$employment_status, levels = c("Employed", "Unemployed", "Retired", "Student"))
+
+diabetes_dataset$smoking_status <- factor(diabetes_dataset$smoking_status, levels = c("Never", "Former", "Current"))
+
+diabetes_dataset$family_history_diabetes <- factor(diabetes_dataset$family_history_diabetes, levels = c(0, 1), labels = c("No", "Yes"))
+
+diabetes_dataset$hypertension_history <- factor(diabetes_dataset$hypertension_history, levels = c(0, 1), labels = c("No", "Yes"))
+
+diabetes_dataset$cardiovascular_history <- factor(diabetes_dataset$cardiovascular_history, levels = c(0, 1), labels = c("No", "Yes"))
+
+diabetes_dataset$diabetes_stage <- factor(diabetes_dataset$diabetes_stage, levels = c("No Diabetes", "Pre-Diabetes", "Type 1", "Type 2", "Gestational"))
+
+diabetes_dataset$diagnosed_diabetes <- factor(diabetes_dataset$diagnosed_diabetes, levels = c(0, 1), labels = c("No", "Yes"))
+```
+
+#-------------------------------------------------
+# 2. Split treino / teste 
+#-------------------------------------------------
+```{r Divisão conjunto de dados: treino e teste}
+library(caret)
+idx <- createDataPartition(diabetes_dataset$diagnosed_diabetes, p = 0.9, list = FALSE)
+train <- diabetes_dataset[idx, ]
+test  <- diabetes_dataset[-idx, ]
+```
+
+#-------------------------------------------------
+# 3. Controle CV com OOF predictions
+#-------------------------------------------------
+```{r Controle cv com oof}
+ctrl <- trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+```
+
+#-------------------------------------------------
+# 4. Modelo GLM: Logístico
+#-------------------------------------------------
+```{r Modelo Logísto Binário}
+library(caret)
+library(dplyr)
+
+set.seed(123)
+
+vars_to_drop <- c("diabetes_stage","diabetes_risk_score")
+
+model <- train(
+  diagnosed_diabetes ~ .,
+  data = train |> dplyr::select(-all_of(vars_to_drop)),
+  method = "glm",
+  family = binomial(),
+  metric = "ROC",
+  trControl = ctrl,
+  preProcess = c("center", "scale")
+)
+```
+
+```{r Resultados Modelo}
+print(model)
+
+summary(model)
+
+coef(model$finalModel)
+
+confint(model$finalModel)
+
+exp(coef(model$finalModel))
+```
+#-------------------------------------------------
+# 5. OOF predictions (do próprio CV)
+#-------------------------------------------------
+```{r OOF predictions}
+oof <- model$pred
+
+# manter apenas o melhor tuning (glm não tem tuning, mas mantemos padrão)
+oof <- oof[oof$parameter == "none", ]
+```
+
+#-------------------------------------------------
+# 6. ROC usando OOF predictions
+#-------------------------------------------------
+```{r ROC usando OOF}
+library(pROC)
+roc_obj <- roc(
+  oof$obs,
+  oof$Yes,
+  levels = c("No", "Yes")
+)
+
+auc(roc_obj)
+plot(roc_obj)
+```
+
+#-------------------------------------------------
+# 7. Threshold para Sens ≥ 0.9
+#-------------------------------------------------
+```{r}
+tab <- coords(
+  roc_obj,
+  x = "all",
+  input = "sensitivity",
+  ret = c("threshold", "sensitivity"),
+  transpose = FALSE
+)
+
+tab[tab$sensitivity >= 0.9, ]
+tab[which.max(tab$threshold[tab$sensitivity >= 0.9]), ]
+
+best_t <- max(tab$threshold[tab$sensitivity >= 0.9])
+best_t
+```
+#-------------------------------------------------
+# 8. Avaliação no teste
+#-------------------------------------------------
+```{r Avaliação Modelo no Conjunto Teste}
+prob_test <- predict(model, test, type = "prob")
+
+pred_final <- ifelse(prob_test$Yes >= best_t, "Yes", "No")
+pred_final <- factor(pred_final, levels = c("No", "Yes"))
+
+confusionMatrix(pred_final, test$diagnosed_diabetes, positive = "Yes")
+```
