@@ -45,7 +45,7 @@ diabetes_dataset$diagnosed_diabetes <- factor(diabetes_dataset$diagnosed_diabete
 #-------------------------------------------------
 ```{r Divisão conjunto de dados: treino e teste}
 library(caret)
-idx <- createDataPartition(diabetes_dataset$diagnosed_diabetes, p = 0.9, list = FALSE)
+idx <- createDataPartition(diabetes_dataset$diagnosed_diabetes, p = 0.95, list = FALSE)
 train <- diabetes_dataset[idx, ]
 test  <- diabetes_dataset[-idx, ]
 ```
@@ -101,7 +101,7 @@ exp(coef(model$finalModel))
 #-------------------------------------------------
 ```{r OOF predictions}
 oof <- model$pred
-
+oof
 # manter apenas o melhor tuning (glm não tem tuning, mas mantemos padrão)
 oof <- oof[oof$parameter == "none", ]
 ```
@@ -119,6 +119,10 @@ roc_obj <- roc(
 
 auc(roc_obj)
 plot(roc_obj)
+
+model$results
+
+
 ```
 
 #-------------------------------------------------
@@ -147,6 +151,7 @@ prob_test <- predict(model, test, type = "prob")
 
 pred_final <- ifelse(prob_test$Yes >= best_t, "Yes", "No")
 pred_final <- factor(pred_final, levels = c("No", "Yes"))
+
 
 confusionMatrix(pred_final, test$diagnosed_diabetes, positive = "Yes")
 ```
